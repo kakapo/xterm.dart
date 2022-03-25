@@ -4,8 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:xterm/buffer/cell_flags.dart';
 import 'package:xterm/buffer/line/line.dart';
 import 'package:xterm/mouse/position.dart';
+import 'package:xterm/terminal/terminal.dart';
 import 'package:xterm/terminal/terminal_search.dart';
-import 'package:xterm/terminal/terminal_ui_interaction.dart';
 import 'package:xterm/theme/terminal_style.dart';
 import 'package:xterm/util/bit_flags.dart';
 
@@ -20,66 +20,20 @@ class TerminalPainter extends CustomPainter {
     required this.textLayoutCache,
   });
 
-  final TerminalUiInteraction terminal;
+  final Terminal terminal;
   final TerminalStyle style;
   final CellSize charSize;
   final TextLayoutCache textLayoutCache;
+  double cursorX = -1;
+  double cursorY = -1;
 
   @override
   void paint(Canvas canvas, Size size) {
-    _paintBackground(canvas);
-
     _paintText(canvas);
 
     _paintUserSearchResult(canvas, size);
 
     _paintSelection(canvas);
-  }
-
-  void _paintBackground(Canvas canvas) {
-    final lines = terminal.getVisibleLines();
-
-    for (var row = 0; row < lines.length; row++) {
-      final line = lines[row];
-      final offsetY = row * charSize.cellHeight;
-      final cellCount = terminal.terminalWidth;
-
-      for (var col = 0; col < cellCount; col++) {
-        final cellWidth = line.cellGetWidth(col);
-        if (cellWidth == 0) {
-          continue;
-        }
-
-        final cellFgColor = line.cellGetFgColor(col);
-        final cellBgColor = line.cellGetBgColor(col);
-        final effectBgColor = line.cellHasFlag(col, CellFlags.inverse)
-            ? cellFgColor
-            : cellBgColor;
-
-        if (effectBgColor == 0x00) {
-          continue;
-        }
-
-        // when a program reports black as background then it "really" means transparent
-        if (effectBgColor == 0xFF000000) {
-          continue;
-        }
-
-        final offsetX = col * charSize.cellWidth;
-        final effectWidth = charSize.cellWidth * cellWidth + 1;
-        final effectHeight = charSize.cellHeight + 1;
-
-        // background color is already painted with opacity by the Container of
-        // TerminalPainter so wo don't need to fallback to
-        // terminal.theme.background here.
-
-        final paint = Paint()..color = Color(effectBgColor);
-        canvas.drawRect(
-          Rect.fromLTWH(offsetX, offsetY, effectWidth, effectHeight),
-          paint,
-        );
-      }
-    }
   }
 
   void _paintUserSearchResult(Canvas canvas, Size size) {
@@ -238,33 +192,6 @@ class TerminalPainter extends CustomPainter {
     }
   }
 
-  void _paintText(Canvas canvas) {
-    final lines = terminal.getVisibleLines();
-
-    for (var row = 0; row < lines.length; row++) {
-      final line = lines[row];
-      final offsetY = row * charSize.cellHeight;
-      // final cellCount = math.min(terminal.viewWidth, line.length);
-      final cellCount = terminal.terminalWidth;
-
-      for (var col = 0; col < cellCount; col++) {
-        final width = line.cellGetWidth(col);
-
-        if (width == 0) {
-          continue;
-        }
-        final offsetX = col * charSize.cellWidth;
-        _paintCell(
-          canvas,
-          line,
-          col,
-          offsetX,
-          offsetY,
-        );
-      }
-    }
-  }
-
   int _getColor(int colorCode) {
     return (colorCode == 0) ? 0xFF000000 : colorCode;
   }
@@ -282,6 +209,8 @@ class TerminalPainter extends CustomPainter {
     final fgColor = fgColorOverride ?? _getColor(line.cellGetFgColor(cell));
     final bgColor = bgColorOverride ?? _getColor(line.cellGetBgColor(cell));
     final flags = line.cellGetFlags(cell);
+    final cellwidth = line.cellGetWidth(cell);
+    bool hasUnicode = cellwidth == 2 ? true : false;
 
     if (codePoint == 0 || flags.hasFlag(CellFlags.invisible)) {
       return;
@@ -310,6 +239,7 @@ class TerminalPainter extends CustomPainter {
       bold: flags.hasFlag(CellFlags.bold),
       italic: flags.hasFlag(CellFlags.italic),
       underline: flags.hasFlag(CellFlags.underline),
+      hasUnicode: hasUnicode,
     );
 
     character = textLayoutCache.performAndCacheLayout(
@@ -322,6 +252,236 @@ class TerminalPainter extends CustomPainter {
   bool shouldRepaint(CustomPainter oldDelegate) {
     /// paint only when the terminal has changed since last paint.
     return terminal.dirty;
+  }
+
+  void _paintText(Canvas canvas) {
+    final lines = terminal.getVisibleLines();
+
+    double offsetX = 0;
+    // a flag Cell
+    Cell? flagCell;
+    // a string which have the same fgcolor and same unicode
+    String builtString = "";
+    // a condition that the built string contains non-ASCII code or not
+    // if cell's width is 2, means a unicode cell.
+    bool hasUnicode = false;
+
+    for (var i = 0; i < lines.length; i++) {
+      final line = lines[i];
+      final offsetY = i * charSize.cellHeight;
+
+      //final cellCount = math.min(terminal.viewWidth, line.length);
+      final cellCount = terminal.terminalWidth;
+
+      for (var j = 0; j < cellCount; j++) {
+        final codePoint = line.cellGetContent(j);
+        final fgColor = _getColor(line.cellGetFgColor(j));
+        final bgColor = _getColor(line.cellGetBgColor(j));
+        final flags = line.cellGetFlags(j);
+        final cellwidth = line.cellGetWidth(j);
+
+        if (cellwidth == 0 ||
+            codePoint == 0 ||
+            flags.hasFlag(CellFlags.invisible)) {
+          continue;
+        }
+
+        // paint cell backgournd
+        _paintCellBackground(canvas, line, j, j * charSize.cellWidth, offsetY);
+
+        final cell = new Cell();
+        cell.setWidth(cellwidth);
+        cell.setFgColor(fgColor);
+        cell.setBgColor(bgColor);
+        cell.setFlags(flags);
+
+        // reset at the first cell of a line
+        if (j == 0) {
+          // set flagCell null, means it is at first cell of line.
+          flagCell = null;
+          //terminal.global_location_title = '';
+        }
+        String singleChar = String.fromCharCode(codePoint);
+
+        // don't paint space cell to improve performance
+        //  ASCII code 32 is space'_'
+        if (codePoint == 32) {
+          if (flagCell != null) {
+            // the 1 condition: when meet a space cell, just paint previous built string oncetime.
+            paintString(
+                canvas, flagCell, offsetX, offsetY, builtString, hasUnicode);
+            // set the first string of line as location
+            //if (terminal.global_location_title == '') {
+             //terminal.global_location_title = builtString;
+            //}
+
+            flagCell = null;
+          }
+
+          // other space cells are skipped.
+
+        } else {
+          // but if a unicode is contained in the builtString, continue building string.
+          //if it is not space cell and flagCell is null, set flagCell to initialize.
+          bool unicodeFlag = cellwidth == 2;
+          if (flagCell == null) {
+            //fist cell of a line
+            flagCell = cell;
+            builtString = singleChar;
+            offsetX = j * charSize.cellWidth;
+            hasUnicode = unicodeFlag;
+          } else {
+            //if the next cell are same fgcolor and  same unicode wiht current cell,  building string
+            if (hasUnicode == unicodeFlag &&
+                (fgColor == 0xFF000000 ||
+                    (fgColor != 0xFF000000 &&
+                        flagCell.getFgColor() != 0xFF000000 &&
+                        fgColor == flagCell.getFgColor()))) {
+              builtString = builtString + singleChar;
+            } else {
+              // but if current cell's fgcolor change, or unicode flag changed
+              // paint the previous built string at once and reset.
+              // the 2 condition to paint built string: when current cell's color is different from the first cell.
+              paintString(
+                  canvas, flagCell, offsetX, offsetY, builtString, hasUnicode);
+              flagCell = cell;
+              builtString = singleChar;
+              offsetX = j * charSize.cellWidth;
+              hasUnicode = unicodeFlag;
+            }
+          }
+        }
+      }
+
+      // the 3 condition to paint built string: when last line is not end of space cell.
+      if (flagCell != null) {
+        // print('3.builtString: $builtString');
+        paintString(
+            canvas, flagCell, offsetX, offsetY, builtString, hasUnicode);
+        flagCell = null;
+      }
+    }
+  }
+
+  void paintString(Canvas canvas, Cell cell, double offsetX, double offsetY,
+      String builtString, bool hasUnicode) {
+    final fgColor = cell.getFgColor();
+    final bgColor = cell.getBgColor();
+    final flags = cell.getFlags();
+
+    final cellHash = hashValues(builtString, fgColor, bgColor, flags);
+    var character = textLayoutCache.getLayoutFromCache(cellHash);
+    if (character != null) {
+      canvas.drawParagraph(character, Offset(offsetX, offsetY));
+      return;
+    }
+
+    final cellColor = flags.hasFlag(CellFlags.inverse) ? bgColor : fgColor;
+    var color = Color(cellColor);
+    if (flags & CellFlags.faint != 0) {
+      color = color.withOpacity(0.5);
+    }
+
+    final styleToUse = PaintHelper.getStyleToUse(
+      style,
+      color,
+      bold: flags.hasFlag(CellFlags.bold),
+      italic: flags.hasFlag(CellFlags.italic),
+      underline: flags.hasFlag(CellFlags.underline),
+      hasUnicode: hasUnicode,
+    );
+    character = textLayoutCache.performAndCacheLayout(
+        builtString, styleToUse, cellHash);
+    canvas.drawParagraph(character, Offset(offsetX, offsetY));
+  }
+
+  void _paintCellBackground(
+      Canvas canvas, BufferLine line, int cell, offsetX, offsetY) {
+    final cellWidth = line.cellGetWidth(cell);
+    final cellFgColor = line.cellGetFgColor(cell);
+    final cellBgColor = line.cellGetBgColor(cell);
+    final effectBgColor =
+        line.cellHasFlag(cell, CellFlags.inverse) ? cellFgColor : cellBgColor;
+
+    if (effectBgColor == 0x00) {
+      return;
+    }
+
+    // when a program reports black as background then it "really" means transparent
+    if (effectBgColor == 0xFF000000) {
+      return;
+    }
+
+    final offsetX = cell * charSize.cellWidth;
+    final effectWidth = charSize.cellWidth * cellWidth + 1;
+    final effectHeight = charSize.cellHeight + 1;
+
+    // background color is already painted with opacity by the Container of
+    // TerminalPainter so wo don't need to fallback to
+    // terminal.theme.background here.
+
+    if (offsetX != cursorX || offsetY != cursorY) {
+      final paint = Paint()..color = Color(effectBgColor);
+      canvas.drawRect(
+        Rect.fromLTWH(offsetX, offsetY, effectWidth, effectHeight),
+        paint,
+      );
+    }
+  }
+}
+
+class Cell {
+  Cell({this.codePoint = 0, this.width = 0});
+
+  int codePoint = 0;
+  int width = 0;
+  int flags = 0;
+  int fgColor = 0;
+  int bgColor = 0;
+
+  void setCodePoint(int codePoint) {
+    this.codePoint = codePoint;
+  }
+
+  void setWidth(int width) {
+    this.width = width;
+  }
+
+  void setFlags(int flags) {
+    this.flags = flags;
+  }
+
+  void setFgColor(int fgColor) {
+    this.fgColor = fgColor;
+  }
+
+  void setBgColor(int bgColor) {
+    this.bgColor = bgColor;
+  }
+
+  int getFgColor() {
+    return this.fgColor;
+  }
+
+  int getBgColor() {
+    return this.bgColor;
+  }
+
+  int getCodePoint() {
+    return this.codePoint;
+  }
+
+  int getWidth() {
+    return this.width;
+  }
+
+  int getFlags() {
+    return this.flags;
+  }
+
+  @override
+  String toString() {
+    return 'Cell($codePoint)';
   }
 }
 
@@ -395,6 +555,7 @@ class PaintHelper {
     bool bold = false,
     bool italic = false,
     bool underline = false,
+    bool hasUnicode = false,
   }) {
     return (style.textStyleProvider != null)
         ? style.textStyleProvider!(
@@ -416,7 +577,8 @@ class PaintHelper {
             fontStyle: italic ? FontStyle.italic : FontStyle.normal,
             decoration:
                 underline ? TextDecoration.underline : TextDecoration.none,
-            fontFamily: 'monospace',
+            fontFamily: hasUnicode ? 'microhei' : 'monospace',
+            letterSpacing: hasUnicode ? 2.2 : 0,
             fontFamilyFallback: style.fontFamily,
           );
   }

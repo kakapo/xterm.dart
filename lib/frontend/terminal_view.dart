@@ -13,8 +13,7 @@ import 'package:xterm/frontend/input_listener.dart';
 import 'package:xterm/frontend/oscillator.dart';
 import 'package:xterm/frontend/terminal_painters.dart';
 import 'package:xterm/mouse/position.dart';
-import 'package:xterm/terminal/terminal_ui_interaction.dart';
-import 'package:xterm/theme/terminal_style.dart';
+import 'package:xterm/xterm.dart';
 
 class TerminalView extends StatefulWidget {
   TerminalView({
@@ -38,7 +37,7 @@ class TerminalView extends StatefulWidget {
         inputBehavior = inputBehavior ?? InputBehaviors.platform,
         super(key: key ?? ValueKey(terminal));
 
-  final TerminalUiInteraction terminal;
+  final Terminal terminal;
   final FocusNode focusNode;
   final bool autofocus;
   final ScrollController scrollController;

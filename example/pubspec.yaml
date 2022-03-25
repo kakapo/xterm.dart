@@ -86,3 +86,9 @@ flutter:
     - family: Cascadia Mono
       fonts:
         - asset: fonts/CascadiaMonoPL.ttf
+    - family: Hack
+      fonts:
+        - asset: fonts/Hack-Regular.ttf
+    - family: microhei
+      fonts:
+        - asset: fonts/wqy-microhei.ttc
