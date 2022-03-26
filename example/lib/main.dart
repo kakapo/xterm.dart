@@ -1,9 +1,13 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:pty/pty.dart';
 import 'package:xterm/flutter.dart';
+import 'package:xterm/input/shortcut_data.dart';
+import 'package:xterm/input/shortcut_keys.dart';
 import 'package:xterm/xterm.dart';
+import 'package:xterm/util/toast.dart';
 
 void main() {
   runApp(MyApp());
@@ -91,6 +95,37 @@ class _LocalTerminalState extends State<LocalTerminal> {
         child: TerminalView(
           terminal: terminal,
           style: TerminalStyle(fontFamily: ['Hack'], fontSize: 18),
+          shortcutData: [
+            ShortcutData(
+              shortcuts: [
+                ShortcutKeys.CTRL_LEFT,
+                ShortcutKeys.V,
+              ],
+              trigger: () async {
+                if (terminal.selection!.isEmpty) {
+                  final data = await Clipboard.getData('text/plain');
+                  terminal.paste(data!.text!);
+                  Toast.toast(context, 'Pasted.');
+                  terminal.debug.onMsg('paste ┤${data.text}├');
+                }
+              },
+            ),
+            ShortcutData(
+              shortcuts: [
+                ShortcutKeys.CTRL_LEFT,
+                ShortcutKeys.SHIFT_LEFT,
+                ShortcutKeys.C,
+              ],
+              trigger: () {
+                final text = terminal.getSelectedText();
+                Clipboard.setData(ClipboardData(text: text));
+                terminal.selection?.clear();
+                terminal.refresh();
+                terminal.debug.onMsg('copy ┤$text├');
+                Toast.toast(context, '${text} Copied.');
+              },
+            ),
+          ],
         ),
       ),
     );

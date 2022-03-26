@@ -4,6 +4,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:flutter/services.dart';
 import 'package:xterm/frontend/cache.dart';
 import 'package:xterm/frontend/char_size.dart';
 import 'package:xterm/frontend/helpers.dart';
@@ -12,27 +13,31 @@ import 'package:xterm/frontend/input_behaviors.dart';
 import 'package:xterm/frontend/input_listener.dart';
 import 'package:xterm/frontend/oscillator.dart';
 import 'package:xterm/frontend/terminal_painters.dart';
+import 'package:xterm/input/shortcut_data.dart';
+import 'package:xterm/input/shortcut_keys.dart';
 import 'package:xterm/mouse/position.dart';
+import 'package:xterm/util/toast.dart';
 import 'package:xterm/xterm.dart';
 
 class TerminalView extends StatefulWidget {
-  TerminalView({
-    Key? key,
-    required this.terminal,
-    this.style = const TerminalStyle(),
-    this.opacity = 1.0,
-    FocusNode? focusNode,
-    this.autofocus = false,
-    ScrollController? scrollController,
-    this.inputType = TextInputType.text,
-    this.enableSuggestions = false,
-    this.inputAction = TextInputAction.done,
-    this.keyboardAppearance = Brightness.light,
-    this.autocorrect = false,
-    InputBehavior? inputBehavior,
-    this.scrollBehavior,
-    this.padding = 0.0,
-  })  : focusNode = focusNode ?? FocusNode(),
+  TerminalView(
+      {Key? key,
+      required this.terminal,
+      this.style = const TerminalStyle(),
+      this.opacity = 1.0,
+      FocusNode? focusNode,
+      this.autofocus = false,
+      ScrollController? scrollController,
+      this.inputType = TextInputType.text,
+      this.enableSuggestions = false,
+      this.inputAction = TextInputAction.done,
+      this.keyboardAppearance = Brightness.light,
+      this.autocorrect = false,
+      InputBehavior? inputBehavior,
+      this.scrollBehavior,
+      this.padding = 0.0,
+      required this.shortcutData})
+      : focusNode = focusNode ?? FocusNode(),
         scrollController = scrollController ?? ScrollController(),
         inputBehavior = inputBehavior ?? InputBehaviors.platform,
         super(key: key ?? ValueKey(terminal));
@@ -56,6 +61,7 @@ class TerminalView extends StatefulWidget {
 
   final ScrollBehavior? scrollBehavior;
 
+  List<ShortcutData> shortcutData = <ShortcutData>[];
   // get the dimensions of a rendered character
   CellSize measureCellSize(double fontSize) {
     final testString = 'xxxxxxxxxx' * 1000;
@@ -307,6 +313,21 @@ class _TerminalViewState extends State<TerminalView> {
         widget.terminal.onPanUpdate(offset);
         widget.terminal.refresh();
       },
+      onSecondaryTapDown: (detail) async {
+        if (widget.terminal.selection!.isEmpty) {
+          final data = await Clipboard.getData('text/plain');
+          widget.terminal.paste(data!.text!);
+          widget.terminal.debug.onMsg('paste ┤${data.text}├');
+          Toast.toast(context, 'Pasted');
+        } else {
+          final text = widget.terminal.getSelectedText();
+          Clipboard.setData(ClipboardData(text: text));
+          widget.terminal.selection?.clear();
+          widget.terminal.debug.onMsg('copy ┤$text├');
+          widget.terminal.refresh();
+          Toast.toast(context, '`${text}` Copied');
+        }
+      },
       child: Container(
         constraints: BoxConstraints.expand(),
         child: Padding(
@@ -415,6 +436,8 @@ class _TerminalViewState extends State<TerminalView> {
     // TODO: find a way to stop scrolling immediately after key stroke.
     widget.inputBehavior.onKeyStroke(event, widget.terminal);
     widget.terminal.setScrollOffsetFromBottom(0);
+    // entry of shortcutKey
+    _onKey(event);
   }
 
   void onFocus(bool focused) {
@@ -432,6 +455,77 @@ class _TerminalViewState extends State<TerminalView> {
     final topOffset = (offset / _cellSize.cellHeight).ceil();
     final bottomOffset = widget.terminal.invisibleHeight - topOffset;
     widget.terminal.setScrollOffsetFromBottom(bottomOffset);
+  }
+
+  List<ShortcutKeys> _keyEvent = <ShortcutKeys>[];
+
+  /// for shortcut key
+  void _onKey(RawKeyEvent event) {
+    if (event is RawKeyDownEvent) {
+      _onKeyDown(event);
+    } else if (event is RawKeyUpEvent) {
+      _onKeyUp(event);
+    } else {
+      return;
+    }
+  }
+
+  void _onKeyDown(RawKeyEvent event) {
+    int? keyCode = 0;
+
+    if (event.data is RawKeyEventDataAndroid) {
+      RawKeyEventDataAndroid? rawKeyEventData =
+          event.data as RawKeyEventDataAndroid?;
+      keyCode = rawKeyEventData?.keyCode;
+    } else if (event.data is RawKeyEventDataLinux) {
+      RawKeyEventDataLinux? rawKeyEventData =
+          event.data as RawKeyEventDataLinux?;
+      keyCode = rawKeyEventData?.keyCode;
+    } else if (event.data is RawKeyEventDataMacOs) {
+      RawKeyEventDataMacOs? rawKeyEventData =
+          event.data as RawKeyEventDataMacOs?;
+      keyCode = rawKeyEventData?.keyCode;
+    }
+
+    ShortcutKeys? key = ShortcutKey.getKey(keyCode!, event.data.physicalKey);
+
+    if (!_keyEvent.contains(key)) {
+      _keyEvent.add(key!);
+    }
+    // print(" ShortcutKey keyCode: $keyCode, key: $key, _keyEvent: $_keyEvent");
+    List<ShortcutData> shortcuts = widget.shortcutData;
+    for (int i = 0; i < shortcuts.length; i++) {
+      ShortcutData shortcutData = shortcuts[i];
+      if (shortcutData.hasMouse()) {
+        continue;
+      }
+      if (shortcutData.equalKey(_keyEvent)) {
+        shortcutData.triggerEvent();
+        break;
+      }
+    }
+  }
+
+  void _onKeyUp(RawKeyEvent event) {
+    int? keyCode = 0;
+
+    if (event.data is RawKeyEventDataAndroid) {
+      RawKeyEventDataAndroid? rawKeyEventData =
+          event.data as RawKeyEventDataAndroid?;
+      keyCode = rawKeyEventData?.keyCode;
+    } else if (event.data is RawKeyEventDataLinux) {
+      RawKeyEventDataLinux? rawKeyEventData =
+          event.data as RawKeyEventDataLinux?;
+      keyCode = rawKeyEventData?.keyCode;
+    } else if (event.data is RawKeyEventDataMacOs) {
+      RawKeyEventDataMacOs? rawKeyEventData =
+          event.data as RawKeyEventDataMacOs?;
+      keyCode = rawKeyEventData?.keyCode;
+    }
+
+    //RawKeyEventDataAndroid rawKeyEventDataAndroid = event.data;
+    ShortcutKeys? key = ShortcutKey.getKey(keyCode!, event.data.physicalKey);
+    _keyEvent.remove(key);
   }
 }
 
