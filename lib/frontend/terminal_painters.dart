@@ -258,19 +258,17 @@ class TerminalPainter extends CustomPainter {
     final lines = terminal.getVisibleLines();
 
     double offsetX = 0;
-    // a flag Cell
+    // a flag Cell if it's null means it's a space cell or it's the first cell of line
     Cell? flagCell;
     // a string which have the same fgcolor and same unicode
     String builtString = "";
-    // a condition that the built string contains non-ASCII code or not
     // if cell's width is 2, means a unicode cell.
-    bool hasUnicode = false;
+    bool flagCellUnicode = false;
 
     for (var i = 0; i < lines.length; i++) {
       final line = lines[i];
       final offsetY = i * charSize.cellHeight;
 
-      //final cellCount = math.min(terminal.viewWidth, line.length);
       final cellCount = terminal.terminalWidth;
 
       for (var j = 0; j < cellCount; j++) {
@@ -297,67 +295,85 @@ class TerminalPainter extends CustomPainter {
 
         // reset at the first cell of a line
         if (j == 0) {
-          // set flagCell null, means it is at first cell of line.
+          // set flagCell null to indicate current cell is the first cell of line
           flagCell = null;
-          //terminal.global_location_title = '';
+          terminal.gLocationTitle = '';
         }
-        String singleChar = String.fromCharCode(codePoint);
 
-        // don't paint space cell to improve performance
-        //  ASCII code 32 is space'_'
+        // don't paint space cell for improving UI performance, because every line have space cells.
+        // when meet a fist space cell of a line, the previous builtString is always a path location. like: admin@larkbooks:/home/admin$ ls
+        // space cell's ASCII code is 32
         if (codePoint == 32) {
           if (flagCell != null) {
-            // the 1 condition: when meet a space cell, just paint previous built string oncetime.
-            paintString(
-                canvas, flagCell, offsetX, offsetY, builtString, hasUnicode);
+            // when meet a space cell, and flagCell have content, means builtString have chars, must paint it once time.
+            /*
+            print("paint builtString 1:" +
+                builtString +
+                ", offsetX=" +
+                offsetX.toString());
+            */
+
+            paintString(canvas, flagCell, offsetX, offsetY, builtString,
+                flagCellUnicode);
             // set the first string of line as location
-            //if (terminal.global_location_title == '') {
-             //terminal.global_location_title = builtString;
-            //}
-
-            flagCell = null;
+            if (terminal.gLocationTitle == '') {
+              terminal.gLocationTitle = builtString;
+            }
           }
-
-          // other space cells are skipped.
-
+          // set flagCell null to indicate it is a space sell, all space cells are skipped .
+          flagCell = null;
         } else {
-          // but if a unicode is contained in the builtString, continue building string.
-          //if it is not space cell and flagCell is null, set flagCell to initialize.
+          //if cell is not space, going to build string or paint string.
+          String singleChar = String.fromCharCode(codePoint);
           bool unicodeFlag = cellwidth == 2;
           if (flagCell == null) {
-            //fist cell of a line
+            // if flagCell is null,  means previous cell is first cell or previous cell is space cell.
             flagCell = cell;
             builtString = singleChar;
             offsetX = j * charSize.cellWidth;
-            hasUnicode = unicodeFlag;
+            flagCellUnicode = unicodeFlag;
           } else {
-            //if the next cell are same fgcolor and  same unicode wiht current cell,  building string
-            if (hasUnicode == unicodeFlag &&
+            //if the current cell are same fgcolor and same unicode wiht flag cell, going to build string
+            if (flagCellUnicode == unicodeFlag &&
                 (fgColor == 0xFF000000 ||
                     (fgColor != 0xFF000000 &&
                         flagCell.getFgColor() != 0xFF000000 &&
                         fgColor == flagCell.getFgColor()))) {
               builtString = builtString + singleChar;
             } else {
-              // but if current cell's fgcolor change, or unicode flag changed
+              // but if current cell's fgcolor changed, or unicode changed
               // paint the previous built string at once and reset.
-              // the 2 condition to paint built string: when current cell's color is different from the first cell.
-              paintString(
-                  canvas, flagCell, offsetX, offsetY, builtString, hasUnicode);
+              /*
+              print("paint builtString 2:" +
+                  builtString +
+                  ", offsetX=" +
+                  offsetX.toString());
+              */
+              paintString(canvas, flagCell, offsetX, offsetY, builtString,
+                  flagCellUnicode);
               flagCell = cell;
               builtString = singleChar;
-              offsetX = j * charSize.cellWidth;
-              hasUnicode = unicodeFlag;
+              // unicode cell width is 2, so offsetX need -1 cell
+              if (flagCellUnicode == false)
+                offsetX = j * charSize.cellWidth;
+              else
+                offsetX = (j - 1) * charSize.cellWidth;
+              flagCellUnicode = unicodeFlag;
             }
           }
         }
       }
 
-      // the 3 condition to paint built string: when last line is not end of space cell.
+      // paint the remaining build string as every line is not end of space cell.
       if (flagCell != null) {
-        // print('3.builtString: $builtString');
+        /*
+        print("paint builtString 3:" +
+            builtString +
+            ", offsetX=" +
+            offsetX.toString());
+        */
         paintString(
-            canvas, flagCell, offsetX, offsetY, builtString, hasUnicode);
+            canvas, flagCell, offsetX, offsetY, builtString, flagCellUnicode);
         flagCell = null;
       }
     }

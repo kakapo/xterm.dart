@@ -68,7 +68,8 @@ class Terminal
 
     tabs.reset();
   }
-
+  // use to change titlebar's title
+  String gLocationTitle = '';
   late TerminalSearch _search;
   late TerminalSearchTask _userSearchTask;
 

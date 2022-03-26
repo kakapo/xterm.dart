@@ -422,7 +422,7 @@ class PaintHelper {
             fontStyle: italic ? FontStyle.italic : FontStyle.normal,
             decoration:
                 underline ? TextDecoration.underline : TextDecoration.none,
-            fontFamily: hasUnicode ? 'NotoSansSC' : 'SourceCodePro',
+            fontFamily: hasUnicode ? 'microhei' : 'monospace',
             letterSpacing: hasUnicode ? 2.2 : 0,
             fontFamilyFallback: style.fontFamily,
           );
