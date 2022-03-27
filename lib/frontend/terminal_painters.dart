@@ -287,6 +287,13 @@ class TerminalPainter extends CustomPainter {
         // paint cell backgournd
         _paintCellBackground(canvas, line, j, j * charSize.cellWidth, offsetY);
 
+        // if unicode cell, just paint cell.
+        if (cellwidth == 2) {
+          _paintCell(canvas, line, j, j * charSize.cellWidth, offsetY);
+          flagCellUnicode = true;
+          continue;
+        }
+
         final cell = new Cell();
         cell.setWidth(cellwidth);
         cell.setFgColor(fgColor);
@@ -353,11 +360,7 @@ class TerminalPainter extends CustomPainter {
                   flagCellUnicode);
               flagCell = cell;
               builtString = singleChar;
-              // unicode cell width is 2, so offsetX need -1 cell
-              if (flagCellUnicode == false)
-                offsetX = j * charSize.cellWidth;
-              else
-                offsetX = (j - 1) * charSize.cellWidth;
+              offsetX = j * charSize.cellWidth;
               flagCellUnicode = unicodeFlag;
             }
           }

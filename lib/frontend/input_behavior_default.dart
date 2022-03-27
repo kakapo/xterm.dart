@@ -57,12 +57,14 @@ class InputBehaviorDefault extends InputBehavior {
     //this is a hack to bypass some race condition in the input system
     //we just take the last rune if there are more than one as it sometimes
     //happens that the last value is still part of the new value
-
+    /*
+    //no need to hack in Ubuntu 20.04, 
     if (_lastEditingState?.text.isNotEmpty == true) {
       if (inputText.length > _lastEditingState!.text.length) {
         inputText = inputText.substring(_lastEditingState!.text.length);
       }
     }
+    */
 
     if (inputText.isNotEmpty) {
       terminal.raiseOnInput(inputText);
