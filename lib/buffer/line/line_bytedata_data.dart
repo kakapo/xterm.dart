@@ -197,6 +197,7 @@ class ByteDataBufferLineData with BufferLineData {
     if (index >= _maxCols) {
       return 1;
     }
+    if (index * _cellSize + _cellWidth < 0) return 0;
     return _cells.getUint8(index * _cellSize + _cellWidth);
   }
 

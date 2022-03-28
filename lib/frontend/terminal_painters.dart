@@ -319,7 +319,6 @@ class TerminalPainter extends CustomPainter {
                 ", offsetX=" +
                 offsetX.toString());
             */
-
             paintString(canvas, flagCell, offsetX, offsetY, builtString,
                 flagCellUnicode);
             // set the first string of line as location
@@ -356,8 +355,8 @@ class TerminalPainter extends CustomPainter {
                   ", offsetX=" +
                   offsetX.toString());
               */
-              paintString(canvas, flagCell, offsetX, offsetY, builtString,
-                  flagCellUnicode);
+              paintString(
+                  canvas, flagCell, offsetX, offsetY, builtString, unicodeFlag);
               flagCell = cell;
               builtString = singleChar;
               offsetX = j * charSize.cellWidth;
